@@ -1,0 +1,130 @@
+/* ---------- global ---------- */
+
+* {
+	cursor: default;
+	font-family: "Courier New", Courier, monospace;
+	font-size: 12px;
+	font-weight: normal;
+	color: darkorange;
+}
+
+html {
+	width: 100%;
+	height: 100%;
+}
+
+body {
+	width: 90%;
+	height: 90%;
+	background-color: black;
+}
+
+/* ---------- inputs ---------- */
+
+input {
+	background-color: black;
+	border: none;
+	color: darkorange;
+	cursor: text;
+	width: 100px;
+}
+input:hover {
+	background-color: darkorange;
+	color: black;
+}
+input:valid {
+	background-color: darkorange;
+	color: black;	
+}
+input:invalid {
+	box-shadow: none;
+}
+
+button {
+	border: 1px solid darkorange;
+	background-color: black;
+	padding: 5px;
+	margin: 5px 0px 0px 5px;
+	cursor: pointer;
+}
+button:hover {
+	background-color: darkorange;
+	color: black;
+}
+button.selected {
+	background-color: darkorange;
+	color: black;
+}
+
+/* ---------- divs ---------- */
+
+div.splash {
+	text-align: center;
+}
+
+div.hidden {
+	display: none;
+}
+
+/* ---------- tables ---------- */
+
+table {
+	border: 1px solid darkorange;
+	margin: 5px 0px 0px 5px;
+	padding: 5px;
+}
+
+table caption {
+	border: 1px solid darkorange;
+	border-bottom: none;
+	padding: 3px;
+}
+
+table:hover caption {
+	color: black;
+	background-color: darkorange;
+}
+
+table thead th {
+	border-bottom: 1px solid darkorange;
+	cursor: pointer;
+	white-space: nowrap;
+	padding-right: 10px;
+}
+
+table thead th:hover {
+	color: black;
+	background-color: darkorange;
+}
+
+table thead th.des {
+	color: black;
+	background-color: darkorange;
+}
+
+table thead th.des:after {
+	content: " \25BC";
+}
+
+table thead th.aes {
+	color: black;
+	background-color: darkorange;
+}
+
+table thead th.aes:after {
+	content: " \25B2";
+}
+
+table thead td {
+	border-bottom: 1px dotted darkorange;
+}
+
+table tbody td {
+	white-space: nowrap;
+	padding-right: 10px;
+}
+
+table tbody tr:hover td {
+	color: black;
+	background-color: darkorange;
+}
