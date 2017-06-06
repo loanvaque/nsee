@@ -23,5 +23,10 @@ function profiling(containerId, jsonData) {
 			var tableConfig = {"caption": "data", "containerId": containerId};
 			slickTable(jsonData["data"]["traces"], tableConfig);
 		}
+		// ping
+		else if(containerId == "block_4111") {
+			var tableConfig = {"caption": "data", "containerId": containerId};
+			slickTable(jsonData["data"]["pings"], tableConfig);
+		}
 	}
 }
