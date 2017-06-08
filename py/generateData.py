@@ -54,7 +54,7 @@ def getInterfaces(jsonData):
 		line = line.rstrip()
 		regexMatch = re.match(regexStringInterface, line)
 		if regexMatch is not None:
-			if regexMatch.group(1) in interfaces: continue # to do
+			if regexMatch.group(1) in interfaces: continue # to do !!
 			lineId += 1
 			jsonData["data"]["interfaces"]["values"].append({ "id": lineId, "name": regexMatch.group(1) })
 			continue
@@ -83,12 +83,10 @@ def getActivity(jsonData):
 	printColor("activity")
 
 	excludedIpv4Addresses = ["127.0.0.1", "0.0.0.0"]
-
 	interface = ""
 	for interf in jsonData["data"]["interfaces"]["values"]:
 		if "ipv4Addr" in interf and interf["ipv4Addr"] is not None and interf["ipv4Addr"] not in excludedIpv4Addresses:
 			interface = interf["name"] # grab the last valid interface
-
 	if interface == "":
 		printColor("    no interface")
 		printColor("aborted")
@@ -228,15 +226,15 @@ def getTraces(jsonData):
 		printColor("aborted")
 		return 0
 
-	ownIpv4Addresses = ['127.0.0.1', '0.0.0.0']
+	excludedIpv4Addresses = ['127.0.0.1', '0.0.0.0']
 	for iface in jsonData["data"]["interfaces"]["values"]:
-		if "ipv4Addr" in iface and iface["ipv4Addr"] not in ownIpv4Addresses:
-			ownIpv4Addresses.append(iface["ipv4Addr"])
-
+		if "ipv4Addr" in iface and iface["ipv4Addr"] is not None:
+			if iface["ipv4Addr"] not in excludedIpv4Addresses:
+				excludedIpv4Addresses.append(iface["ipv4Addr"])
 	hosts = []
 	for host in jsonData["profiles"]["hosts"]["values"]:
-		if "ipv4Addr" in host:
-			if host["ipv4Addr"] not in hosts and host["ipv4Addr"] not in ownIpv4Addresses:
+		if "ipv4Addr" in host and host["ipv4Addr"] is not None:
+			if host["ipv4Addr"] not in hosts and host["ipv4Addr"] not in excludedIpv4Addresses:
 				hosts.append(host["ipv4Addr"])
 	if len(hosts) < 1:
 		printColor("    no hosts")
@@ -252,7 +250,6 @@ def getTraces(jsonData):
 	jsonData["data"]["traces"]["origin"] = " ".join(command + ["[host]"])
 	lineId = 0
 	for host in hosts:
-#		command = ['traceroute', '-n', '-q', '1', '-m', '10', '-i', interface, host]
 		printColor("    %s" % " ".join(command + [host]))
 		trace = subprocess.Popen(command + [host], stdout=subprocess.PIPE)
 		for line in iter(trace.stdout.readline, b""):
@@ -348,20 +345,20 @@ def getPorts(jsonData):
 		printColor("aborted")
 		return 0
 
-#	ownIpv4Addresses = ['127.0.0.1', '0.0.0.0']
-#	for iface in jsonData["data"]["interfaces"]["values"]:
-#		if "ipv4Addr" in iface and iface["ipv4Addr"] not in ownIpv4Addresses:
-#			ownIpv4Addresses.append(iface["ipv4Addr"])
-
+	excludedIpv4Addresses = ['127.0.0.1', '0.0.0.0']
+	for iface in jsonData["data"]["interfaces"]["values"]:
+		if "ipv4Addr" in iface and iface["ipv4Addr"] is not None:
+			if iface["ipv4Addr"] not in excludedIpv4Addresses:
+				excludedIpv4Addresses.append(iface["ipv4Addr"])
 	allowedSubnets = []
 	for subnet in jsonData["profiles"]["subnets"]["values"]:
 		if "name" in subnet and subnet["name"] is not None:
 			allowedSubnets.append(subnet["name"])
-
 	hosts = []
 	for host in jsonData["profiles"]["hosts"]["values"]:
 		if "ipv4Addr" in host and host["ipv4Addr"] is not None:
-			if host["ipv4Addr"] not in hosts and ".".join(host["ipv4Addr"].split(".")[0:3]) in allowedSubnets:
+			if host["ipv4Addr"] not in hosts and host["ipv4Addr"] not in excludedIpv4Addresses and \
+				".".join(host["ipv4Addr"].split(".")[0:3]) in allowedSubnets:
 				hosts.append(host["ipv4Addr"])
 	if len(hosts) < 1:
 		printColor("    no hosts")
