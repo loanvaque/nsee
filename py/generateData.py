@@ -45,7 +45,7 @@ def getInterfaces(jsonData):
 	regexStringMacAddress = re.compile("[\t ]+ether %s" % regexMacAddress)
 	regexStringIpv4Address = re.compile("[\t ]+inet %s" % regexIpv4Address)
 
-	command = ['ifconfig', '-u']
+	command = ['sudo', 'ifconfig']
 	printColor("    %s" % " ".join(command))
 	ifconfig = subprocess.Popen(command, stdout=subprocess.PIPE)
 	jsonData["data"]["interfaces"]["origin"] = " ".join(command)
@@ -82,11 +82,12 @@ def getInterfaces(jsonData):
 def getActivity(jsonData):
 	printColor("activity")
 
+	excludedIpv4Addresses = ["127.0.0.1", "0.0.0.0"]
+
 	interface = ""
 	for interf in jsonData["data"]["interfaces"]["values"]:
-		if "ipv4Addr" not in interf: continue
-		if interf["ipv4Addr"] is None: continue
-		interface = interf["name"] # grab the last valid interface
+		if "ipv4Addr" in interf and interf["ipv4Addr"] is not None and interf["ipv4Addr"] not in excludedIpv4Addresses:
+			interface = interf["name"] # grab the last valid interface
 
 	if interface == "":
 		printColor("    no interface")
@@ -247,12 +248,13 @@ def getTraces(jsonData):
 	regexLatency = "([0-9]+\.[0-9]{3} ms)"
 	regexStringTrace = re.compile("[ ]*%s  %s  %s" % (regexHop, regexIpv4, regexLatency))
 
-	jsonData["data"]["traces"]["origin"] = " ".join(['traceroute', '-n', '-q', '1', '-m', '20', '-i', interface, '[host]'])
+	command = ['traceroute', '-n', '-q', '1', '-m', '10', '-i', interface]
+	jsonData["data"]["traces"]["origin"] = " ".join(command + ["[host]"])
 	lineId = 0
 	for host in hosts:
-		command = ['traceroute', '-n', '-q', '1', '-m', '10', '-i', interface, host]
-		printColor("    %s" % " ".join(command))
-		trace = subprocess.Popen(command, stdout=subprocess.PIPE)
+#		command = ['traceroute', '-n', '-q', '1', '-m', '10', '-i', interface, host]
+		printColor("    %s" % " ".join(command + [host]))
+		trace = subprocess.Popen(command + [host], stdout=subprocess.PIPE)
 		for line in iter(trace.stdout.readline, b""):
 			lineId += 1
 			line = line.rstrip()
