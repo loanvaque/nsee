@@ -9,24 +9,34 @@ function profiling(containerId, jsonData) {
 
 		// interfaces
 		if(containerId == "block_1111") {
-			var tableConfig = {"caption": "data", "containerId": containerId};
+			var tableConfig = {"caption": jsonData["data"]["interfaces"]["origin"], "containerId": containerId};
 			slickTable(jsonData["data"]["interfaces"], tableConfig);
 		}
 		// activity
 		else if(containerId == "block_2111") {
-			var tableConfig = {"caption": "data", "containerId": containerId};
+			var tableConfig = {"caption": jsonData["data"]["activity"]["origin"], "containerId": containerId};
 			slickTable(jsonData["data"]["activity"], tableConfig);
 
 		}
 		// traces
 		else if(containerId == "block_3111") {
-			var tableConfig = {"caption": "data", "containerId": containerId};
+			var tableConfig = {"caption": jsonData["data"]["traces"]["origin"], "containerId": containerId};
 			slickTable(jsonData["data"]["traces"], tableConfig);
 		}
-		// ping
+		// pings
 		else if(containerId == "block_4111") {
-			var tableConfig = {"caption": "data", "containerId": containerId};
+			var tableConfig = {"caption": jsonData["data"]["pings"]["origin"], "containerId": containerId};
 			slickTable(jsonData["data"]["pings"], tableConfig);
+		}
+		// ports
+		else if(containerId == "block_5111") {
+			var tableConfig = {"caption": jsonData["data"]["ports"]["origin"], "containerId": containerId};
+			slickTable(jsonData["data"]["ports"], tableConfig);
+		}
+		// profiles
+		else if(containerId == "block_8111") {
+			var tableConfig = {"caption": "subnets", "containerId": containerId};
+			slickTable(jsonData["profiles"]["subnets"], tableConfig);
 		}
 	}
 }

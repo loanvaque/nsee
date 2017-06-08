@@ -2,13 +2,17 @@ import subprocess
 import re
 import json
 
+# ----- ----- helpers ----- -----
+
 def printColor(text):
 	print("\033[0;33m%s\033[0m" % text)
 	return 0
 
+# ----- ----- data ----- -----
+
 def persistData(jsonData, jsonFileName, action):
-	printColor("data")
 	if action == "load":
+		printColor("data")
 		try:
 			printColor("    load")
 			jsonFileHandle = open(jsonFileName, "r")
@@ -16,55 +20,79 @@ def persistData(jsonData, jsonFileName, action):
 			jsonFileHandle.close()
 		# except FileNotFoundError (works only from pyton3 onwards)
 		except IOError:
-			printColor("        no file")
+			printColor("    no file")
 			pass
+		printColor("done")
 	else:
-		printColor("    save")
 		jsonFileHandle = open(jsonFileName, "w")
 		json.dump(jsonData, jsonFileHandle, indent=4)
 		jsonFileHandle.close()
-	printColor("done")
-	return 0
+	return jsonData
+
+# ----- ----- network ----- -----
 
 def getInterfaces(jsonData):
 	printColor("interfaces")
-	regexInterface = "(.+)"
+
+	interfaces = []
+	for interface in jsonData["data"]["interfaces"]["values"]:
+		if interface["name"] not in interfaces:
+			interfaces.append(interface["name"])
+
 	regexMacAddress = "((?:[0-9A-Fa-f]{2}\:){5}[0-9A-Fa-f]{2})"
 	regexIpv4Address = "((?:[0-9]{1,3}\.){3}[0-9]{1,3})"
-	regexStatus = "(.+)"
-	regexStringInterface = re.compile("%s\: flags=" % regexInterface)
-	regexStringMacAddress = re.compile("\tether %s" % regexMacAddress)
-	regexStringIpv4Address = re.compile("\tinet %s" % regexIpv4Address)
-	regexStringStatus = re.compile("\tstatus\: %s" % regexStatus)
+	regexStringInterface = re.compile("(.+)\: flags=")
+	regexStringMacAddress = re.compile("[\t ]+ether %s" % regexMacAddress)
+	regexStringIpv4Address = re.compile("[\t ]+inet %s" % regexIpv4Address)
 
-	command = ('sudo', 'ifconfig')
+	command = ['ifconfig', '-u']
 	printColor("    %s" % " ".join(command))
 	ifconfig = subprocess.Popen(command, stdout=subprocess.PIPE)
+	jsonData["data"]["interfaces"]["origin"] = " ".join(command)
 	lineId = 0
 	for line in iter(ifconfig.stdout.readline, b""):
 		line = line.rstrip()
 		regexMatch = re.match(regexStringInterface, line)
 		if regexMatch is not None:
+			if regexMatch.group(1) in interfaces: continue # to do
 			lineId += 1
 			jsonData["data"]["interfaces"]["values"].append({ "id": lineId, "name": regexMatch.group(1) })
 			continue
 		regexMatch = re.match(regexStringMacAddress, line)
 		if regexMatch is not None:
-			jsonData["data"]["interfaces"]["values"][len(jsonData["data"]["interfaces"]["values"]) - 1]["macAddr"] = regexMatch.group(1)
+			jsonData["data"]["interfaces"]["values"][len(jsonData["data"]["interfaces"]["values"]) - 1]["macAddr"] = regexMatch.group(1).lower()
 			continue
 		regexMatch = re.match(regexStringIpv4Address, line)
 		if regexMatch is not None:
 			jsonData["data"]["interfaces"]["values"][len(jsonData["data"]["interfaces"]["values"]) - 1]["ipv4Addr"] = regexMatch.group(1)
-		regexMatch = re.match(regexStringStatus, line)
-		if regexMatch is not None:
-			jsonData["data"]["interfaces"]["values"][len(jsonData["data"]["interfaces"]["values"]) - 1]["status"] = regexMatch.group(1)
 
-	printColor("        %s results" % str(len(jsonData["data"]["interfaces"]["values"])))
+	# extract subnet info
+	excludedIpv4Addresses = ["127.0.0.1", "0.0.0.0"]
+	lineId = 0
+	for interface in jsonData["data"]["interfaces"]["values"]:
+		if "ipv4Addr" in interface and interface["ipv4Addr"] is not None and interface["ipv4Addr"] not in excludedIpv4Addresses:
+			lineId += 1
+			jsonData["profiles"]["subnets"]["values"].append({ "id": lineId, "name": ".".join(interface["ipv4Addr"].split(".")[0:3]),
+				"interface": interface["name"] })
+
+	printColor("    %s results" % str(len(jsonData["data"]["interfaces"]["values"])))
 	printColor("done")
 	return 0
 
 def getActivity(jsonData):
 	printColor("activity")
+
+	interface = ""
+	for interf in jsonData["data"]["interfaces"]["values"]:
+		if "ipv4Addr" not in interf: continue
+		if interf["ipv4Addr"] is None: continue
+		interface = interf["name"] # grab the last valid interface
+
+	if interface == "":
+		printColor("    no interface")
+		printColor("aborted")
+		return 0
+
 	regexTimestamp = "((?:[0-9]{2}\:){2}[0-9]{2}\.[0-9]{6})"
 	regexMacAddress = "((?:[0-9A-Fa-f]{2}\:){5}[0-9A-Fa-f]{2})"
 	regexIpv4 = "((?:[0-9]{1,3}\.){3}[0-9]{1,3})"
@@ -84,15 +112,10 @@ def getActivity(jsonData):
 	regexStringIPv6 = re.compile("%s %s > %s, ethertype (IPv6 \(0x86dd\)), length [0-9]+\: %s" % \
 		(regexTimestamp, regexMacAddress, regexMacAddress, regexDetails))
 
-	interface = ""
-	for interf in jsonData["data"]["interfaces"]["values"]:
-		if "status" in interf and interf["status"] == "active":
-			if "ipv4Addr" in interf and interf["ipv4Addr"] is not None:
-				interface = interf["name"]
-				break
-	command = ("sudo", "tcpdump", "-e", "-n", "-c", "5", "-i", interface)
+	command = ["tcpdump", "-e", "-n", "-c", "5", "-i", interface]
 	printColor("    %s" % " ".join(command))
 	tcpdump = subprocess.Popen(command, stdout=subprocess.PIPE)
+	jsonData["data"]["activity"]["origin"] = " ".join(command)
 	lineId = 0
 	for line in iter(tcpdump.stdout.readline, b""):
 		lineId += 1
@@ -100,33 +123,39 @@ def getActivity(jsonData):
 		# parse ARP request packets
 		regexMatch = re.match(regexStringArpRequest, line)
 		if regexMatch is not None:
-			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1), "srcMacAddr": regexMatch.group(2),
-				"dstMacAddr": regexMatch.group(3), "etherType": regexMatch.group(4), "details": regexMatch.group(5) })
+			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1),
+				"srcMacAddr": regexMatch.group(2).lower(), "dstMacAddr": regexMatch.group(3).lower(),
+				"etherType": regexMatch.group(4), "details": regexMatch.group(5) })
 			continue
 		# parse ARP reply packets
 		regexMatch = re.match(regexStringArpReply, line)
 		if regexMatch is not None:
-			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1), "srcMacAddr": regexMatch.group(2),
-				"dstMacAddr": regexMatch.group(3), "etherType": regexMatch.group(4), "details": regexMatch.group(5) })
+			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1),
+				"srcMacAddr": regexMatch.group(2).lower(), "dstMacAddr": regexMatch.group(3).lower(),
+				"etherType": regexMatch.group(4), "details": regexMatch.group(5) })
 			continue
 		# parse EAPOL packets
 		regexMatch = re.match(regexStringEapol, line)
 		if regexMatch is not None:
-			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1), "srcMacAddr": regexMatch.group(2),
-				"dstMacAddr": regexMatch.group(3), "etherType": regexMatch.group(4), "details": regexMatch.group(5) })
+			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1),
+				"srcMacAddr": regexMatch.group(2).lower(), "dstMacAddr": regexMatch.group(3).lower(),
+				"etherType": regexMatch.group(4), "details": regexMatch.group(5) })
 			continue
 		# parse IPv4 IGMP packets
 		regexMatch = re.match(regexStringIPv4Igmp, line)
 		if regexMatch is not None:
-			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1), "srcMacAddr": regexMatch.group(2),
-				"dstMacAddr": regexMatch.group(3), "etherType": regexMatch.group(4), "srcIpv4Addr": regexMatch.group(5),
-				"dstIpv4Addr": regexMatch.group(6), "details": regexMatch.group(7) })
+			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1),
+				"srcMacAddr": regexMatch.group(2).lower(), "dstMacAddr": regexMatch.group(3).lower(),
+				"etherType": regexMatch.group(4), "srcIpv4Addr": regexMatch.group(5),
+#				"dstIpv4Addr": regexMatch.group(6), "details": regexMatch.group(7) })
+				"dstIpv4Addr": regexMatch.group(6), "details": line })
 			continue
 		# parse IPv4 packets
 		regexMatch = re.match(regexStringIPv4, line)
 		if regexMatch is not None:
-			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1), "srcMacAddr": regexMatch.group(2),
-				"dstMacAddr": regexMatch.group(3), "etherType": regexMatch.group(4), "srcIpv4Addr": regexMatch.group(5),
+			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1),
+				"srcMacAddr": regexMatch.group(2).lower(), "dstMacAddr": regexMatch.group(3).lower(),
+				"etherType": regexMatch.group(4), "srcIpv4Addr": regexMatch.group(5),
 				"srcPort": regexMatch.group(6), "dstIpv4Addr": regexMatch.group(7), "dstPort": regexMatch.group(8),
 				"details": regexMatch.group(9) })
 			if jsonData["data"]["activity"]["values"][-1]["details"].startswith("Flags"):
@@ -135,8 +164,9 @@ def getActivity(jsonData):
 		# parse IPv6 packets
 		regexMatch = re.match(regexStringIPv6, line)
 		if regexMatch is not None:
-			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1), "srcMacAddr": regexMatch.group(2),
-				"dstMacAddr": regexMatch.group(3), "etherType": regexMatch.group(4), "details": regexMatch.group(5) })
+			jsonData["data"]["activity"]["values"].append({ "id": lineId, "timeStamp": regexMatch.group(1),
+				"srcMacAddr": regexMatch.group(2).lower(), "dstMacAddr": regexMatch.group(3).lower(),
+				"etherType": regexMatch.group(4), "details": regexMatch.group(5) })
 			continue
 		# catchall
 		jsonData["data"]["activity"]["values"].append({ "details": line })
@@ -149,18 +179,18 @@ def getActivity(jsonData):
 			hosts.append(host["macAddr"])
 	for packet in jsonData["data"]["activity"]["values"]:
 		if "srcMacAddr" in packet and packet["srcMacAddr"] not in hosts:
-			jsonData["profiles"]["hosts"]["values"].append({ "macAddr": packet["srcMacAddr"], "ipv4Addr": [] })
+			jsonData["profiles"]["hosts"]["values"].append({ "macAddr": packet["srcMacAddr"] })
 			hosts.append(packet["srcMacAddr"])
 		if "dstMacAddr" in packet and packet["dstMacAddr"] not in hosts:
-			jsonData["profiles"]["hosts"]["values"].append({ "macAddr": packet["dstMacAddr"], "ipv4Addr": [] })
+			jsonData["profiles"]["hosts"]["values"].append({ "macAddr": packet["dstMacAddr"] })
 			hosts.append(packet["dstMacAddr"])
 
 	# get ip addresses
 	for packet in jsonData["data"]["activity"]["values"]:
 		if "srcMacAddr" in packet and "srcIpv4Addr" in packet:
 			for host in jsonData["profiles"]["hosts"]["values"]:
-				if packet["srcMacAddr"] == host["macAddr"] and packet["srcIpv4Addr"] not in host["ipv4Addr"]:
-					host["ipv4Addr"].append(packet["srcIpv4Addr"])
+				if packet["srcMacAddr"] == host["macAddr"] and "ipv4Addr" not in host:
+					 host["ipv4Addr"] = packet["srcIpv4Addr"]
 
 	# add any new behavior
 #	for host in hosts:
@@ -180,25 +210,24 @@ def getActivity(jsonData):
 #				jsonData["behaviors"]["values"][index]["packetsSent"] += 1
 #			if "dstMacAddr" in packet and packet["dstMacAddr"] == host["macAddr"]:
 #				jsonData["behaviors"]["values"][index]["packetsRcvd"] += 1
-	printColor("        %s results" % str(len(jsonData["data"]["activity"]["values"])))
+	printColor("    %s results" % str(len(jsonData["data"]["activity"]["values"])))
 	printColor("done")
 	return 0
 
 def getTraces(jsonData):
 	printColor("traces")
-	regexHop = "([0-9]+)"
-	regexIpv4 = "((?:[0-9]{1,3}\.){3}[0-9]{1,3})"
-	regexLatency = "([0-9]+\.[0-9]{3} ms)"
-	regexStringTrace = re.compile("[ ]*%s  %s  %s" % (regexHop, regexIpv4, regexLatency))
 
 	interface = ""
-	for iface in jsonData["data"]["interfaces"]["values"]:
-		if "status" in iface and iface["status"] == "active":
-			if "ipv4Addr" in iface and iface["ipv4Addr"] is not None:
-				interface = iface["name"]
-				break
+	for interf in jsonData["data"]["interfaces"]["values"]:
+		if "ipv4Addr" not in interf: continue
+		if interf["ipv4Addr"] is None: continue
+		interface = interf["name"] # grab the last valid interface
+	if interface == "":
+		printColor("    no interface")
+		printColor("aborted")
+		return 0
 
-	ownIpv4Addresses = []
+	ownIpv4Addresses = ['127.0.0.1', '0.0.0.0']
 	for iface in jsonData["data"]["interfaces"]["values"]:
 		if "ipv4Addr" in iface and iface["ipv4Addr"] not in ownIpv4Addresses:
 			ownIpv4Addresses.append(iface["ipv4Addr"])
@@ -206,12 +235,22 @@ def getTraces(jsonData):
 	hosts = []
 	for host in jsonData["profiles"]["hosts"]["values"]:
 		if "ipv4Addr" in host:
-			for ipv4Addr in host["ipv4Addr"]:
-				if ipv4Addr not in hosts and ipv4Addr not in ownIpv4Addresses:
-					hosts.append(ipv4Addr)
+			if host["ipv4Addr"] not in hosts and host["ipv4Addr"] not in ownIpv4Addresses:
+				hosts.append(host["ipv4Addr"])
+	if len(hosts) < 1:
+		printColor("    no hosts")
+		printColor("aborted")
+		return 0
+
+	regexHop = "([0-9]+)"
+	regexIpv4 = "((?:[0-9]{1,3}\.){3}[0-9]{1,3})"
+	regexLatency = "([0-9]+\.[0-9]{3} ms)"
+	regexStringTrace = re.compile("[ ]*%s  %s  %s" % (regexHop, regexIpv4, regexLatency))
+
+	jsonData["data"]["traces"]["origin"] = " ".join(['traceroute', '-n', '-q', '1', '-m', '20', '-i', interface, '[host]'])
 	lineId = 0
 	for host in hosts:
-		command = ('traceroute', '-n', '-q', '1', '-m', '20', '-i', interface, host)
+		command = ['traceroute', '-n', '-q', '1', '-m', '10', '-i', interface, host]
 		printColor("    %s" % " ".join(command))
 		trace = subprocess.Popen(command, stdout=subprocess.PIPE)
 		for line in iter(trace.stdout.readline, b""):
@@ -222,15 +261,33 @@ def getTraces(jsonData):
 				jsonData["data"]["traces"]["values"].append({ "id": lineId, "host": host, "hop": regexMatch.group(1),
 					"ipv4Addr": regexMatch.group(2), "latency": regexMatch.group(3) })
 
-	printColor("        %s results" % str(len(jsonData["data"]["traces"]["values"])))
+	printColor("    %s results" % str(len(jsonData["data"]["traces"]["values"])))
 	printColor("done")
-	return 0
-
-def getSubnets(jsonData):
 	return 0
 
 def getPings(jsonData):
 	printColor("pings")
+
+	interface = ""
+	for interf in jsonData["data"]["interfaces"]["values"]:
+		if "ipv4Addr" not in interf: continue
+		if interf["ipv4Addr"] is None: continue
+		interface = interf["name"] # grab the last valid interface
+	if interface == "":
+		printColor("    no interface")
+		printColor("aborted")
+		return 0
+
+	ownSubnet = ""
+	for subnet in jsonData["profiles"]["subnets"]["values"]:
+		if subnet["interface"] == interface:
+			ownSubnet = subnet["name"]
+			break
+	if ownSubnet == "":
+		printColor("    no subnet")
+		printColor("aborted")
+		return 0
+
 	regexIpv4Address = "((?:[0-9]{1,3}\.){3}[0-9]{1,3})"
 	regexLatency = "([0-9]+\.[0-9]+s)"
 	regexMacAddress = "((?:[0-9A-Fa-f]{2}\:){5}[0-9A-Fa-f]{2})"
@@ -239,22 +296,13 @@ def getPings(jsonData):
 	regexStringLatency = re.compile("Host is up \(%s latency\)" % regexLatency)
 	regexStringMacAddr = re.compile("MAC Address\: %s \(%s\)" % (regexMacAddress, regexMacBrand))
 
-	interface = ""
-	ownSubnet = ""
-	for iface in jsonData["data"]["interfaces"]["values"]:
-		if "status" in iface and iface["status"] == "active":
-			if "ipv4Addr" in iface and iface["ipv4Addr"] is not None:
-				interface = iface["name"]
-				ownSubnet = ".".join(iface["ipv4Addr"].split(".")[0:3])
-				break
-
-	command = ('nmap', '-n', '-sn', '-PS', '-PA', '-PU', '-PY', '-PE', '-PP', '-PM', '-PO', '-PR', '-e', interface, ownSubnet + ".1-254")
+	command = ['nmap', '-n', '-sn', '-PS', '-PA', '-PU', '-PY', '-PE', '-PP', '-PM', '-PO', '-PR', '-e', interface, ownSubnet + ".1-254"]
 	printColor("    %s" % " ".join(command))
 	pings = subprocess.Popen(command, stdout=subprocess.PIPE)
+	jsonData["data"]["pings"]["origin"] = " ".join(command)
 	lineId = 0
 	for line in iter(pings.stdout.readline, b""):
 		line = line.rstrip()
-		print(line)
 		regexMatch = re.match(regexStringIpv4Addr, line)
 		if regexMatch is not None:
 			lineId += 1
@@ -266,72 +314,142 @@ def getPings(jsonData):
 			continue
 		regexMatch = re.match(regexStringMacAddr, line)
 		if regexMatch is not None:
-			jsonData["data"]["pings"]["values"][len(jsonData["data"]["pings"]["values"]) - 1]["macAddr"] = regexMatch.group(1)
+			jsonData["data"]["pings"]["values"][len(jsonData["data"]["pings"]["values"]) - 1]["macAddr"] = regexMatch.group(1).lower()
 			jsonData["data"]["pings"]["values"][len(jsonData["data"]["pings"]["values"]) - 1]["macBrand"] = regexMatch.group(2)
 			continue
 
-	printColor("        %s results" % str(len(jsonData["data"]["pings"]["values"])))
+	# extract hosts
+	hosts = []
+	for host in jsonData["profiles"]["hosts"]["values"]:
+		if "ipv4Addr" in host and host["ipv4Addr"] not in hosts:
+			hosts.append(host["ipv4Addr"])
+	for ping in jsonData["data"]["pings"]["values"]:
+		if "ipv4Addr" in ping and ping["ipv4Addr"] not in hosts:
+			jsonData["profiles"]["hosts"]["values"].append({ "ipv4Addr": ping["ipv4Addr"] })
+			hosts.append(ping["ipv4Addr"])
+
+	printColor("    %s results" % str(len(jsonData["data"]["pings"]["values"])))
 	printColor("done")
 	return 0
 
 def getPorts(jsonData):
 	printColor("ports")
+#"nmap -n -Pn -sU --reason %s"
 
+	interface = ""
+	for interf in jsonData["data"]["interfaces"]["values"]:
+		if "ipv4Addr" not in interf: continue
+		if interf["ipv4Addr"] is None: continue
+		interface = interf["name"] # grab the last valid interface
+	if interface == "":
+		printColor("    no interfaces")
+		printColor("aborted")
+		return 0
 
-	printColor("        %s results" % str(len(jsonData["data"]["ports"]["values"])))
+#	ownIpv4Addresses = ['127.0.0.1', '0.0.0.0']
+#	for iface in jsonData["data"]["interfaces"]["values"]:
+#		if "ipv4Addr" in iface and iface["ipv4Addr"] not in ownIpv4Addresses:
+#			ownIpv4Addresses.append(iface["ipv4Addr"])
+
+	allowedSubnets = []
+	for subnet in jsonData["profiles"]["subnets"]["values"]:
+		if "name" in subnet and subnet["name"] is not None:
+			allowedSubnets.append(subnet["name"])
+
+	hosts = []
+	for host in jsonData["profiles"]["hosts"]["values"]:
+		if "ipv4Addr" in host and host["ipv4Addr"] is not None:
+			if host["ipv4Addr"] not in hosts and ".".join(host["ipv4Addr"].split(".")[0:3]) in allowedSubnets:
+				hosts.append(host["ipv4Addr"])
+	if len(hosts) < 1:
+		printColor("    no hosts")
+		printColor("aborted")
+		return 0
+
+	regexPortNumber = "([0-9]{1,5}\/tcp)"
+	regexPortState = "([^\t ]+)"
+	regexPortService = "([^\t ]+)"
+	regexPortReason = "(.+)"
+	regexStringPort = re.compile("%s[\t ]+%s[\t ]+%s[\t ]+%s" % (regexPortNumber, regexPortState, regexPortService, regexPortReason))
+
+	command = ["nmap", "-n", "-Pn", "-sS", "--reason", "-e", interface]
+	jsonData["data"]["ports"]["origin"] = " ".join(command + ["[host]"])
+	lineId = 0
+	for host in hosts:
+		printColor("    %s" % " ".join(command + [host]))
+		ports = subprocess.Popen(command + [host], stdout=subprocess.PIPE)
+		for line in iter(ports.stdout.readline, b""):
+			line = line.rstrip()
+			regexMatch = re.match(regexStringPort, line)
+			if regexMatch is not None:
+				lineId += 1
+				jsonData["data"]["ports"]["values"].append({ "id": lineId, "host": host, "port": regexMatch.group(1),
+					"state": regexMatch.group(2), "service": regexMatch.group(3), "reason": regexMatch.group(4) })
+				continue
+
+	printColor("    %s results" % str(len(jsonData["data"]["ports"]["values"])))
 	printColor("done")
 	return 0
+
+# ----- ----- main ----- -----
 
 if __name__ == "__main__":
 	jsonData = {
 		"data": {
 			"interfaces": {
-				"keys": [ "id", "name", "macAddr", "ipv4Addr", "status", "details" ],
+				"origin": "",
+				"keys": [ "id", "name", "macAddr", "ipv4Addr", "details" ],
 				"values": []
 			},
 			"activity": {
-				"keys": [
-					"id", "timeStamp", "etherType", "srcMacAddr", "srcIpv4Addr", "srcPort", "dstMacAddr", "dstIpv4Addr", "dstPort", "details"
+				"origin": "",
+				"keys": [ "id", "timeStamp", "etherType", "srcMacAddr", "srcIpv4Addr", "srcPort",
+					"dstMacAddr", "dstIpv4Addr", "dstPort", "details"
 				],
 				"values": []
 			},
 			"traces": {
+				"origin": "",
 				"keys": [ "id", "host", "hop", "ipv4Addr", "latency", "details" ],
 				"values": []
 			},
 			"pings": {
+				"origin": "",
 				"keys": [ "id", "ipv4Addr", "latency", "macAddr", "macBrand", "details" ],
+				"values": []
+			},
+			"ports": {
+				"origin": "",
+				"keys": [ "id", "host", "port", "state", "service", "reason", "details" ],
 				"values": []
 			}
 		},
-#		"behaviors": {
-#			"keys": [
-#				"macAddr", "pingLatency", "route", "packetsSent", "packetsRcvd", "details"
-#			],
-#			"values": []
-#		},
 		"profiles": {
 			"hosts": {
-				"keys": [ "macAddr", "ipv4Addr", "hostName", "function", "details" ],
+				"keys": [ "id", "macAddr", "ipv4Addr", "hostName", "function", "details" ],
 				"values": []
 			},
-			"networks": []
+			"subnets": {
+				"keys": [ "id", "name", "interface" ],
+				"values": []
+			}
 		}
 	}
+
 	jsonFileName = "../http/networkData.json"
-	persistData(jsonData, jsonFileName, "load")
+	jsonData = persistData(jsonData, jsonFileName, "load")
 
 	getInterfaces(jsonData)
 	persistData(jsonData, jsonFileName, "save")
 
-#	getActivity(jsonData)
-#	persistData(jsonData, jsonFileName, "save")
+	getActivity(jsonData)
+	persistData(jsonData, jsonFileName, "save")
 
-#	getTraces(jsonData)
-#	persistData(jsonData, jsonFileName, "save")
+	getTraces(jsonData)
+	persistData(jsonData, jsonFileName, "save")
 
 	getPings(jsonData)
 	persistData(jsonData, jsonFileName, "save")
 
-#	getPorts(jsonData)
-#	persistData(jsonData, jsonFileName, "save")
+	getPorts(jsonData)
+	persistData(jsonData, jsonFileName, "save")
