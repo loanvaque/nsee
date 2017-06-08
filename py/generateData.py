@@ -216,21 +216,15 @@ def getActivity(jsonData):
 def getTraces(jsonData):
 	printColor("traces")
 
+	excludedIpv4Addresses = ["127.0.0.1", "0.0.0.0"]
 	interface = ""
 	for interf in jsonData["data"]["interfaces"]["values"]:
-		if "ipv4Addr" not in interf: continue
-		if interf["ipv4Addr"] is None: continue
-		interface = interf["name"] # grab the last valid interface
+		if "ipv4Addr" in interf and interf["ipv4Addr"] is not None and interf["ipv4Addr"] not in excludedIpv4Addresses:
+			interface = interf["name"] # grab the last valid interface
 	if interface == "":
 		printColor("    no interface")
 		printColor("aborted")
 		return 0
-
-	excludedIpv4Addresses = ['127.0.0.1', '0.0.0.0']
-	for iface in jsonData["data"]["interfaces"]["values"]:
-		if "ipv4Addr" in iface and iface["ipv4Addr"] is not None:
-			if iface["ipv4Addr"] not in excludedIpv4Addresses:
-				excludedIpv4Addresses.append(iface["ipv4Addr"])
 	hosts = []
 	for host in jsonData["profiles"]["hosts"]["values"]:
 		if "ipv4Addr" in host and host["ipv4Addr"] is not None:
@@ -267,11 +261,11 @@ def getTraces(jsonData):
 def getPings(jsonData):
 	printColor("pings")
 
+	excludedIpv4Addresses = ["127.0.0.1", "0.0.0.0"]
 	interface = ""
 	for interf in jsonData["data"]["interfaces"]["values"]:
-		if "ipv4Addr" not in interf: continue
-		if interf["ipv4Addr"] is None: continue
-		interface = interf["name"] # grab the last valid interface
+		if "ipv4Addr" in interf and interf["ipv4Addr"] is not None and interf["ipv4Addr"] not in excludedIpv4Addresses:
+			interface = interf["name"] # grab the last valid interface
 	if interface == "":
 		printColor("    no interface")
 		printColor("aborted")
@@ -335,13 +329,13 @@ def getPorts(jsonData):
 	printColor("ports")
 #"nmap -n -Pn -sU --reason %s"
 
+	excludedIpv4Addresses = ["127.0.0.1", "0.0.0.0"]
 	interface = ""
 	for interf in jsonData["data"]["interfaces"]["values"]:
-		if "ipv4Addr" not in interf: continue
-		if interf["ipv4Addr"] is None: continue
-		interface = interf["name"] # grab the last valid interface
+		if "ipv4Addr" in interf and interf["ipv4Addr"] is not None and interf["ipv4Addr"] not in excludedIpv4Addresses:
+			interface = interf["name"] # grab the last valid interface
 	if interface == "":
-		printColor("    no interfaces")
+		printColor("    no interface")
 		printColor("aborted")
 		return 0
 
